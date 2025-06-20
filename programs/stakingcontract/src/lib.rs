@@ -45,6 +45,20 @@ pub struct Stake <'info>{
     pub system_program: Program<'info,System>
 }
 
+#[derive(Accounts)]
+pub struct Unstake<'info>{
+    #[account(mut)]
+    pub payer:Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"stake1",payer.key().as_ref()],
+        bump = pda_acc.bump,
+        constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
+    )]
+    pub pda_acc: Account<'info,StakeAccount>,
+    pub system_program: Program<'info,System>
+}
+
 
 
 #[account]
