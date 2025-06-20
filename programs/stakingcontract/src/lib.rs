@@ -4,7 +4,7 @@ declare_id!("ERoFVBGqdz2xsgSvuGqaZbjni4swEjo4ByKXHwpDDP5U");
 
 #[program]
 pub mod stakingcontract {
-    use anchor_lang::system_program;
+    use anchor_lang::{solana_program::clock, system_program};
 
     use super::*;
 
@@ -25,7 +25,7 @@ pub mod stakingcontract {
         let pda_acc = &mut ctx.accounts.pda_acc;
         let clock = Clock::get()?;
 
-        update_stake(pda_acc,clock);
+        update_stake(pda_acc,clock.unix_timestamp);
 
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -38,106 +38,136 @@ pub mod stakingcontract {
         pda_acc.stakeamount.checked_add(amount).ok_or(ErrorMessages::Overflow);
         Ok(())
     }
+
+    pub fn unstake(ctx: Context<Unstake>, amount:u64)->Result<()>{
+        require!(amount>0, ErrorMessages::InvalidAmount);
+        let pda_acc = ctx.accounts.pda_acc;
+        let clock = Clock::get()?;
+        require!(pda_acc.stakeamount >amount, ErrorMessages::InsufficientStake);
+
+        update_points(pda_acc,clock.unix_timestamp);
+        let seeds = &[
+        b"client1",
+        ctx.accounts.user.key().as_ref(),
+        &[pda_account.bump],
+        ];
+        let signer = &[&seeds[..]];
+        
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+
+            system_program::Transfer{
+                from:ctx.accounts.pda_acc.to_account_info(),
+                to:ctx.accounts.payer.to_account_info()
+            }, signer
+        );
+
+        system_program::transfer(cpi_context, amount)?;
+
+        pda_acc.stakeamount = pda_acc.stakeamount.checked_sub(amount).ok_or(ErrorMessages::Underflow)?;
+        
+        Ok(())
+    }
 }
 
-#[derive(Accounts)]
-pub struct CreatePdaAccount<'info> {
-    #[account(mut)]
-    pub payer : Signer<'info>,
+    #[derive(Accounts)]
+    pub struct CreatePdaAccount<'info> {
+        #[account(mut)]
+        pub payer : Signer<'info>,
 
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + 32 + 8 + 8 + 1,
-        seeds = [b"stake1",payer.key().as_ref()],
-        bump
-    )]
+        #[account(
+            init,
+            payer = payer,
+            space = 8 + 32 + 8 + 8 + 1,
+            seeds = [b"stake1",payer.key().as_ref()],
+            bump
+        )]
 
-    pub pda_acc : Account<'info, StakeAccount>,
+        pub pda_acc : Account<'info, StakeAccount>,
 
-    pub system_program: Program<'info,System>
-}
+        pub system_program: Program<'info,System>
+    }
 
-#[derive(Accounts)]
-pub struct Stake <'info>{
-    #[account(mut)]
-    pub payer: Signer<'info>,
+    #[derive(Accounts)]
+    pub struct Stake <'info>{
+        #[account(mut)]
+        pub payer: Signer<'info>,
 
-    #[account(
-        mut,
-        seeds = [b"stake1", payer.key().as_ref()],
-        bump = pda_acc.bump,
-        constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
-    )]
-    pub pda_acc : Account<'info, StakeAccount>,
-    pub system_program: Program<'info,System>
-}
+        #[account(
+            mut,
+            seeds = [b"stake1", payer.key().as_ref()],
+            bump = pda_acc.bump,
+            constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
+        )]
+        pub pda_acc : Account<'info, StakeAccount>,
+        pub system_program: Program<'info,System>
+    }
 
-#[derive(Accounts)]
-pub struct Unstake<'info>{
-    #[account(mut)]
-    pub payer:Signer<'info>,
-    #[account(
-        mut,
-        seeds = [b"stake1",payer.key().as_ref()],
-        bump = pda_acc.bump,
-        constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
-    )]
-    pub pda_acc: Account<'info,StakeAccount>,
-    pub system_program: Program<'info,System>
-}
+    #[derive(Accounts)]
+    pub struct Unstake<'info>{
+        #[account(mut)]
+        pub payer:Signer<'info>,
+        #[account(
+            mut,
+            seeds = [b"stake1",payer.key().as_ref()],
+            bump = pda_acc.bump,
+            constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
+        )]
+        pub pda_acc: Account<'info,StakeAccount>,
+        pub system_program: Program<'info,System>
+    }
 
-#[derive(Accounts)]
-pub struct ClaimPoints<'info>{
-    #[account(mut)]
-    pub payer: Signer<'info>,
+    #[derive(Accounts)]
+    pub struct ClaimPoints<'info>{
+        #[account(mut)]
+        pub payer: Signer<'info>,
 
-    #[account(
-        mut,
-        seeds = [b"stake1",payer.key().as_ref()],
-        bump = pda_acc.bump,
-        constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
-    )]
-    pub pda_acc:Account<'info,StakeAccount>,
-    pub  system_program: Program<'info,System>
-}
+        #[account(
+            mut,
+            seeds = [b"stake1",payer.key().as_ref()],
+            bump = pda_acc.bump,
+            constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
+        )]
+        pub pda_acc:Account<'info,StakeAccount>,
+        pub  system_program: Program<'info,System>
+    }
 
-#[derive(Accounts)]
-pub struct GetPoints<'info> {
-    pub user: Signer<'info>,
-    
-    #[account(
-        seeds = [b"client1", user.key().as_ref()],
-        bump = pda_account.bump,
-        constraint = pda_account.owner == user.key() @ErrorMessages::Unautharized
-    )]
-    pub pda_account: Account<'info, StakeAccount>,
-}
+    #[derive(Accounts)]
+    pub struct GetPoints<'info> {
+        pub user: Signer<'info>,
+        
+        #[account(
+            seeds = [b"client1", user.key().as_ref()],
+            bump = pda_account.bump,
+            constraint = pda_account.owner == user.key() @ErrorMessages::Unautharized
+        )]
+        pub pda_account: Account<'info, StakeAccount>,
+    }
 
 
 
-#[account]
-pub struct StakeAccount{
-    owner:Pubkey,
-    stakeamount: u64,
-    points:u64,
-    lasttimestamp:i64,
-    bump:u8
-}
+    #[account]
+    pub struct StakeAccount{
+        owner:Pubkey,
+        stakeamount: u64,
+        points:u64,
+        lasttimestamp:i64,
+        bump:u8
+    }
 
-#[error_code]
-pub enum ErrorMessages {
-    #[msg("amount must be greater than 0")]
-    InvalidAmount,
-    #[msg("Insufficient staked amount")]
-    InsufficientStake,
-    #[msg("Unautharized access")]
-    Unautharized,
-    #[msg("Arithmetic Overflow")]
-    Overflow,
-    #[msg("Arithmetic Underflow")]
-    Underflow,
-    #[msg("Invalid Timestamp")]
-    InvalidTimestamp
-}
+    #[error_code]
+    pub enum ErrorMessages {
+        #[msg("amount must be greater than 0")]
+        InvalidAmount,
+        #[msg("Insufficient staked amount")]
+        InsufficientStake,
+        #[msg("Unautharized access")]
+        Unautharized,
+        #[msg("Arithmetic Overflow")]
+        Overflow,
+        #[msg("Arithmetic Underflow")]
+        Underflow,
+        #[msg("Invalid Timestamp")]
+        InvalidTimestamp
+    }
 
