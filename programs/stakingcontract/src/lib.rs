@@ -7,7 +7,7 @@ const SECONDS_PER_DAY: u64 = 86_400;
 
 #[program]
 pub mod stakingcontract {
-    use anchor_lang::{solana_program::clock, system_program};
+    use anchor_lang::{system_program};
 
     use super::*;
 
@@ -28,7 +28,7 @@ pub mod stakingcontract {
         let pda_acc = &mut ctx.accounts.pda_acc;
         let clock = Clock::get()?;
 
-        update_points(pda_acc,clock.unix_timestamp);
+        update_points(pda_acc,clock.unix_timestamp)?;
 
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -38,7 +38,7 @@ pub mod stakingcontract {
         });
 
         system_program::transfer(cpi_context, amount)?;
-        pda_acc.stakeamount.checked_add(amount).ok_or(ErrorMessages::Overflow);
+        pda_acc.stakeamount.checked_add(amount).ok_or(ErrorMessages::Overflow)?;
         Ok(())
     }
 
@@ -48,7 +48,7 @@ pub mod stakingcontract {
         let clock = Clock::get()?;
         require!(pda_acc.stakeamount >amount, ErrorMessages::InsufficientStake);
 
-        update_points(pda_acc,clock.unix_timestamp);
+        update_points(pda_acc,clock.unix_timestamp)?;
         let payer_key = ctx.accounts.payer.key();
         let seeds = &[
         b"stake1",
