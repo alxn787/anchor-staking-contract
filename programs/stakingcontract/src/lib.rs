@@ -25,7 +25,7 @@ pub mod stakingcontract {
         let pda_acc = &mut ctx.accounts.pda_acc;
         let clock = Clock::get()?;
 
-        update_stake(pda_acc,clock.unix_timestamp);
+        update_points(pda_acc,clock.unix_timestamp);
 
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -48,8 +48,8 @@ pub mod stakingcontract {
         update_points(pda_acc,clock.unix_timestamp);
         let seeds = &[
         b"client1",
-        ctx.accounts.user.key().as_ref(),
-        &[pda_account.bump],
+        ctx.accounts.payer.key().as_ref(),
+        &[pda_acc.bump],
         ];
         let signer = &[&seeds[..]];
         
@@ -68,6 +68,32 @@ pub mod stakingcontract {
         
         Ok(())
     }
+
+}
+
+pub fn update_points(pda_acc: &mut StakeAccount, current_time:i64)->Result<()>{
+    let time_elapsed = current_time.checked_sub(pda_acc.lasttimestamp).ok_or(ErrorMessages::InvalidTimestamp)? as u64;
+    if time_elapsed>0 && pda_acc.stakeamount>0{
+        let new_points = calculate_points_earned(pda_acc.stakeamount, time_elapsed)?;
+        pda_acc.points = pda_acc.points.checked_add(new_points).ok_or(ErrorMessages::Overflow)?
+    }
+Ok(())
+}
+
+fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Result<u64> {
+    // Points = (staked_amount_in_sol * time_in_days * points_per_sol_per_day)
+    // Using micro-points for precision to avoid floating point
+    let points = (staked_amount as u128)
+        .checked_mul(time_elapsed_seconds as u128)
+        .ok_or(StakeError::Overflow)?
+        .checked_mul(POINTS_PER_SOL_PER_DAY as u128)
+        .ok_or(StakeError::Overflow)?
+        .checked_div(LAMPORTS_PER_SOL as u128)
+        .ok_or(StakeError::Overflow)?
+        .checked_div(SECONDS_PER_DAY as u128)
+        .ok_or(StakeError::Overflow)?;
+    
+    Ok(points as u64)
 }
 
     #[derive(Accounts)]
