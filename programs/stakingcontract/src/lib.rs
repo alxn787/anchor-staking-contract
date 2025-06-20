@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 
 declare_id!("ERoFVBGqdz2xsgSvuGqaZbjni4swEjo4ByKXHwpDDP5U");
+const POINTS_PER_SOL_PER_DAY: u64 = 1_000_000; // Using micro-points for precision
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+const SECONDS_PER_DAY: u64 = 86_400;
 
 #[program]
 pub mod stakingcontract {
@@ -31,7 +34,7 @@ pub mod stakingcontract {
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer{
                 from:ctx.accounts.payer.to_account_info(),
-                to:ctx.accounts.pda_acc.to_account_info()
+                to: pda_acc.to_account_info()
         });
 
         system_program::transfer(cpi_context, amount)?;
@@ -41,14 +44,15 @@ pub mod stakingcontract {
 
     pub fn unstake(ctx: Context<Unstake>, amount:u64)->Result<()>{
         require!(amount>0, ErrorMessages::InvalidAmount);
-        let pda_acc = ctx.accounts.pda_acc;
+        let pda_acc = &mut ctx.accounts.pda_acc;
         let clock = Clock::get()?;
         require!(pda_acc.stakeamount >amount, ErrorMessages::InsufficientStake);
 
         update_points(pda_acc,clock.unix_timestamp);
+        let payer_key = ctx.accounts.payer.key();
         let seeds = &[
-        b"client1",
-        ctx.accounts.payer.key().as_ref(),
+        b"stake1",
+        payer_key.as_ref(),
         &[pda_acc.bump],
         ];
         let signer = &[&seeds[..]];
@@ -57,7 +61,7 @@ pub mod stakingcontract {
             ctx.accounts.system_program.to_account_info(),
 
             system_program::Transfer{
-                from:ctx.accounts.pda_acc.to_account_info(),
+                from:pda_acc.to_account_info(),
                 to:ctx.accounts.payer.to_account_info()
             }, signer
         );
@@ -81,17 +85,15 @@ Ok(())
 }
 
 fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Result<u64> {
-    // Points = (staked_amount_in_sol * time_in_days * points_per_sol_per_day)
-    // Using micro-points for precision to avoid floating point
     let points = (staked_amount as u128)
         .checked_mul(time_elapsed_seconds as u128)
-        .ok_or(StakeError::Overflow)?
+        .ok_or(ErrorMessages::Overflow)?
         .checked_mul(POINTS_PER_SOL_PER_DAY as u128)
-        .ok_or(StakeError::Overflow)?
+        .ok_or(ErrorMessages::Overflow)?
         .checked_div(LAMPORTS_PER_SOL as u128)
-        .ok_or(StakeError::Overflow)?
+        .ok_or(ErrorMessages::Overflow)?
         .checked_div(SECONDS_PER_DAY as u128)
-        .ok_or(StakeError::Overflow)?;
+        .ok_or(ErrorMessages::Overflow)?;
     
     Ok(points as u64)
 }
@@ -163,7 +165,7 @@ fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Res
         pub user: Signer<'info>,
         
         #[account(
-            seeds = [b"client1", user.key().as_ref()],
+            seeds = [b"stake1", user.key().as_ref()],
             bump = pda_account.bump,
             constraint = pda_account.owner == user.key() @ErrorMessages::Unautharized
         )]
