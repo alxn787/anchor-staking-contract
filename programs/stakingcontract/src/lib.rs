@@ -6,7 +6,7 @@ declare_id!("ERoFVBGqdz2xsgSvuGqaZbjni4swEjo4ByKXHwpDDP5U");
 pub mod stakingcontract {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+    pub fn create_pda_account(ctx: Context<CreatePdaAccount>) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
         Ok(())
     }
@@ -21,7 +21,7 @@ pub struct CreatePdaAccount<'info> {
         init,
         payer = payer,
         space = 8 + 32 + 4 + 8 + 1,
-        seeds = [b"user-stats",payer.key().as_ref()],
+        seeds = [b"stake1",payer.key().as_ref()],
         bump
     )]
 
@@ -29,6 +29,23 @@ pub struct CreatePdaAccount<'info> {
 
     pub system_program: Program<'info,System>
 }
+
+#[derive(Accounts)]
+pub struct Stake <'info>{
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake1", payer.key().as_ref()],
+        bump = pda_acc.bump,
+        constraint = pda_acc.owner == payer.key() @ErrorMessages::Unautharized
+    )]
+    pub pda_acc : Account<'info, StakeAccount>,
+    pub system_program: Program<'info,System>
+}
+
+
 
 #[account]
 pub struct StakeAccount{
